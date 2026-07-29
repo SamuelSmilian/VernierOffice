@@ -1,0 +1,73 @@
+\title{Getting Started with VernierOffice}
+\author{Jane Doe}
+\date{2026-07-29}
+\lang{en}
+
+\toc
+
+\heading{1}{Introduction}
+
+VernierOffice is an \em{experimental} document language that separates
+semantics from presentation, letting backends handle the visual rendering.
+
+Key features include:
+
+\begin{itemize}
+\item Semantic markup with \code{\\em\{text\}} for emphasis
+\item \link{https://example.com}{Hyperlinks} and cross-references
+\item Tables, figures, and footnotes
+\item \em{2}{Presentation} support with slides
+\end{itemize}
+
+\heading{2}{Text Formatting}
+
+This paragraph demonstrates inline formatting: \em{emphasis} at
+level 1, \em{2}{strong emphasis} at level 2, and
+\em{3}{very strong emphasis} at level 3.
+
+Chemical formulas use subscripts: H\sub{2}O.
+Mathematics uses superscripts: E = mc\super{2}.
+
+Inline code is written with \code{\\code\{content\}}.
+
+\heading{2}{Tables}
+
+\begin{table}
+\caption{Feature comparison}
+\begin{tabular}
+\header{Feature & DOCX & PPTX}
+\header{Headings & Yes & Yes}
+Tables & Yes & Yes \\
+Figures & Yes & Yes \\
+Footnotes & Yes & No \\
+Slides & No & Yes \\
+\end{tabular}
+\end{table}
+
+\heading{2}{Figures}
+
+\begin{figure}
+\image{architecture.png}{System architecture diagram}
+\caption{Overview of the VernierOffice compilation pipeline}
+\end{figure}
+
+\heading{2}{References}
+
+As demonstrated by \cite{knuth1984}, the separation of content
+and presentation is a foundational concept in document processing.
+See \heading{1}{Introduction} \ref{sec:intro} for more details.
+
+\heading{1}{Conclusion}
+
+This example demonstrates the core features of the VernierOffice
+document language. The language provides a minimal but complete
+set of semantic constructs for document authoring.
+
+\begin{bibliography}
+\entry{knuth1984}{
+    author = {Donald Knuth},
+    title = {The TeXbook},
+    year = {1984},
+    publisher = {Addison-Wesley},
+}
+\end{bibliography}

@@ -1,0 +1,12 @@
+[package]
+name = "vernier-office"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "vernier-office"
+path = "src/main.rs"
+
+[dependencies]
+zip = "2"
+quick-xml = "0.37"

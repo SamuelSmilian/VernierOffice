@@ -1,0 +1,8 @@
+# Rust
+/target
+
+# Claude Code
+/.claude
+
+# Nix
+/result

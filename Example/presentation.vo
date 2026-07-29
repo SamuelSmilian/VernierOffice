@@ -1,0 +1,59 @@
+\title{VernierOffice Presentation}
+\author{Jane Doe}
+\date{2026-07-29}
+\lang{en}
+
+\begin{slide}
+\slidetitle{Introduction}
+Hello and welcome to this presentation about \em{VernierOffice}, an
+experimental semantic document language.
+
+Key points:
+\begin{itemize}
+\item Separate content from presentation
+\item Write once, compile to multiple formats
+\item Semantic markup with \code{\\em\{text\}}
+\end{itemize}
+\end{slide}
+
+\begin{slide}
+\slidetitle{Text Formatting}
+This slide demonstrates inline formatting:
+
+\begin{itemize}
+\item \em{Emphasis} level 1 — italic
+\item \em{2}{Strong emphasis} level 2 — bold
+\item \em{3}{Very strong} level 3 — bold italic
+\end{itemize}
+
+Chemical formulas: H\sub{2}O. Mathematics: E = mc\super{2}.
+Inline code: \code{let x = 42;}.
+\end{slide}
+
+\begin{slide}
+\slidetitle{Tables and Data}
+\begin{table}
+\caption{Format comparison}
+\begin{tabular}
+\header{Feature & DOCX & PPTX}
+\header{Headings & Yes & Yes}
+\header{Tables & Yes & Yes}
+\header{Footnotes & Yes & No}
+\header{Slides & No & Yes}
+\end{tabular}
+\end{table}
+\end{slide}
+
+\begin{slide}
+\slidetitle{Conclusions}
+\begin{itemize}
+\item VernierOffice provides semantic document authoring
+\item Multiple backends enable format flexibility
+\item The language is minimal but complete
+\end{itemize}
+
+\slidenotes{
+Thank you for watching this presentation.
+For more information, see the VernierOffice documentation.
+}
+\end{slide}
