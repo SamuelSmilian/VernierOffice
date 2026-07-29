@@ -95,11 +95,18 @@ fn document_rels_xml() -> String {
 </Relationships>"#.to_string()
 }
 
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn core_xml(metadata: &Metadata) -> String {
-    let title = metadata.title.as_deref().unwrap_or("");
-    let author = metadata.author.as_deref().unwrap_or("");
-    let date = metadata.date.as_deref().unwrap_or("");
-    let language = metadata.language.as_deref().unwrap_or("");
+    let title = xml_escape(metadata.title.as_deref().unwrap_or(""));
+    let author = xml_escape(metadata.author.as_deref().unwrap_or(""));
+    let date = xml_escape(metadata.date.as_deref().unwrap_or(""));
+    let language = xml_escape(metadata.language.as_deref().unwrap_or(""));
 
     format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -221,11 +228,11 @@ fn write_document_xml(document: &Document, writer: impl io::Write) -> Result<(),
     if !document.footnotes.is_empty() {
         // Empty paragraph before footnote separator
         w.write_event(Event::Start(BytesStart::new("w:p")))?;
-        write_run_empty(&mut w, " ");
+        write_run_empty(&mut w, " ")?;
         w.write_event(Event::End(BytesEnd::new("w:p")))?;
 
         w.write_event(Event::Start(BytesStart::new("w:p")))?;
-        write_run_empty(&mut w, "");
+        write_run_empty(&mut w, "")?;
         w.write_event(Event::Start(BytesStart::new("w:r")))?;
         w.write_event(Event::Empty(BytesStart::new("w:separator")))?;
         w.write_event(Event::End(BytesEnd::new("w:r")))?;
@@ -307,7 +314,7 @@ fn write_footnote_entry(
     w.write_event(Event::Empty(BytesStart::new("w:footnoteRef")))?;
     w.write_event(Event::End(BytesEnd::new("w:r")))?;
 
-    write_run_with_text(w, " ");
+    write_run_with_text(w, " ")?;
 
     for element in content {
         write_inline(w, element)?;
@@ -435,9 +442,9 @@ fn write_block(w: &mut Writer<impl io::Write>, block: &BlockElement) -> Result<(
                 ))?;
                 w.write_event(Event::End(BytesEnd::new("w:pPr")))?;
 
-                write_run_with_text(w, "[Image: ");
-                write_run_with_text(w, &fig.image.path);
-                write_run_with_text(w, "] ");
+                write_run_with_text(w, "[Image: ")?;
+                write_run_with_text(w, &fig.image.path)?;
+                write_run_with_text(w, "] ")?;
                 for element in caption {
                     write_inline(w, element)?;
                 }
@@ -474,7 +481,7 @@ fn write_list(w: &mut Writer<impl io::Write>, list: &List) -> Result<(), Error> 
             } else {
                 "\u{2022} ".to_string()
             };
-            write_run_with_text(w, &marker);
+            write_run_with_text(w, &marker)?;
 
             if let BlockElement::Paragraph(p) = block {
                 for element in &p.content {
@@ -501,7 +508,7 @@ fn write_table(w: &mut Writer<impl io::Write>, table: &Table) -> Result<(), Erro
         ))?;
         w.write_event(Event::End(BytesEnd::new("w:pPr")))?;
 
-        write_run_with_text(w, "Table: ");
+        write_run_with_text(w, "Table: ")?;
         for element in caption {
             write_inline(w, element)?;
         }
@@ -598,7 +605,7 @@ fn write_table_row(
 fn write_inline(w: &mut Writer<impl io::Write>, element: &InlineElement) -> Result<(), Error> {
     match element {
         InlineElement::Text(text) => {
-            write_run_with_text(w, text);
+            write_run_with_text(w, text)?;
         }
         InlineElement::Emphasis(em) => {
             let bold = em.level >= 2;
@@ -643,11 +650,11 @@ fn write_inline(w: &mut Writer<impl io::Write>, element: &InlineElement) -> Resu
         }
         InlineElement::Citation(key) => {
             let text = format!("[{}]", key);
-            write_run_with_text(w, &text);
+            write_run_with_text(w, &text)?;
         }
         InlineElement::CrossReference(label) => {
             let text = format!("§{}", label);
-            write_run_with_text(w, &text);
+            write_run_with_text(w, &text)?;
         }
         InlineElement::FootnoteReference(id) => {
             w.write_event(Event::Start(BytesStart::new("w:r")))?;
@@ -702,24 +709,26 @@ fn inline_text_content(element: &InlineElement) -> String {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn write_run_with_text(w: &mut Writer<impl io::Write>, text: &str) {
-    let _ = w.write_event(Event::Start(BytesStart::new("w:r")));
-    let _ = w.write_event(Event::Start(
+fn write_run_with_text(w: &mut Writer<impl io::Write>, text: &str) -> Result<(), Error> {
+    w.write_event(Event::Start(BytesStart::new("w:r")))?;
+    w.write_event(Event::Start(
         BytesStart::new("w:t").with_attributes([("xml:space", "preserve")]),
-    ));
-    let _ = w.write_event(Event::Text(BytesText::new(text)));
-    let _ = w.write_event(Event::End(BytesEnd::new("w:t")));
-    let _ = w.write_event(Event::End(BytesEnd::new("w:r")));
+    ))?;
+    w.write_event(Event::Text(BytesText::new(text)))?;
+    w.write_event(Event::End(BytesEnd::new("w:t")))?;
+    w.write_event(Event::End(BytesEnd::new("w:r")))?;
+    Ok(())
 }
 
-fn write_run_empty(w: &mut Writer<impl io::Write>, text: &str) {
-    let _ = w.write_event(Event::Start(BytesStart::new("w:r")));
-    let _ = w.write_event(Event::Start(
+fn write_run_empty(w: &mut Writer<impl io::Write>, text: &str) -> Result<(), Error> {
+    w.write_event(Event::Start(BytesStart::new("w:r")))?;
+    w.write_event(Event::Start(
         BytesStart::new("w:t").with_attributes([("xml:space", "preserve")]),
-    ));
-    let _ = w.write_event(Event::Text(BytesText::new(text)));
-    let _ = w.write_event(Event::End(BytesEnd::new("w:t")));
-    let _ = w.write_event(Event::End(BytesEnd::new("w:r")));
+    ))?;
+    w.write_event(Event::Text(BytesText::new(text)))?;
+    w.write_event(Event::End(BytesEnd::new("w:t")))?;
+    w.write_event(Event::End(BytesEnd::new("w:r")))?;
+    Ok(())
 }
 
 fn write_run_with_formatting(
@@ -1069,5 +1078,228 @@ mod tests {
 
         assert!(doc_xml.contains("let x = 1;"));
         assert!(doc_xml.contains("Consolas"));
+    }
+
+    #[test]
+    fn test_metadata_xml_escaping() {
+        let doc = Document {
+            metadata: Metadata {
+                title: Some("Title <with> & \"chars\"".to_string()),
+                author: Some("Author & Co.".to_string()),
+                ..Default::default()
+            },
+            body: vec![],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let core_xml = {
+            let mut f = zip.by_name("docProps/core.xml").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+
+        // XML special chars should be escaped
+        assert!(core_xml.contains("&lt;with&gt;"));
+        assert!(core_xml.contains("&amp; &quot;chars&quot;"));
+        assert!(core_xml.contains("Author &amp; Co."));
+        // Raw special chars should NOT appear in text content
+        assert!(!core_xml.contains("<with>"));
+    }
+
+    #[test]
+    fn test_footnote_in_document() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![BlockElement::Paragraph(Paragraph {
+                content: vec![
+                    InlineElement::Text("Text ".to_string()),
+                    InlineElement::FootnoteReference("1".to_string()),
+                ],
+            })],
+            footnotes: vec![Footnote {
+                id: "1".to_string(),
+                content: vec![InlineElement::Text("The footnote".to_string())],
+            }],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+
+        // Footnotes file should exist
+        assert!(zip.by_name("word/footnotes.xml").is_ok());
+
+        let fn_xml = {
+            let mut f = zip.by_name("word/footnotes.xml").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+
+        assert!(fn_xml.contains("The footnote"));
+        assert!(fn_xml.contains("w:footnotes"));
+    }
+
+    #[test]
+    fn test_multiple_headings() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![
+                BlockElement::Heading(Heading {
+                    level: 1,
+                    content: vec![InlineElement::Text("H1".to_string())],
+                }),
+                BlockElement::Heading(Heading {
+                    level: 2,
+                    content: vec![InlineElement::Text("H2".to_string())],
+                }),
+                BlockElement::Heading(Heading {
+                    level: 3,
+                    content: vec![InlineElement::Text("H3".to_string())],
+                }),
+            ],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let doc_xml = {
+            let mut f = zip.by_name("word/document.xml").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+
+        assert!(doc_xml.contains("Heading1"));
+        assert!(doc_xml.contains("Heading2"));
+        assert!(doc_xml.contains("Heading3"));
+    }
+
+    #[test]
+    fn test_slide_is_skipped_in_docx() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![
+                BlockElement::Paragraph(Paragraph {
+                    content: vec![InlineElement::Text("Before".to_string())],
+                }),
+                BlockElement::Slide(Slide {
+                    title: vec![],
+                    notes: None,
+                    content: vec![],
+                }),
+                BlockElement::Paragraph(Paragraph {
+                    content: vec![InlineElement::Text("After".to_string())],
+                }),
+            ],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let doc_xml = {
+            let mut f = zip.by_name("word/document.xml").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+
+        // Slide content should be absent, surrounding paragraphs preserved
+        assert!(doc_xml.contains("Before"));
+        assert!(doc_xml.contains("After"));
+    }
+
+    #[test]
+    fn test_empty_paragraph() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![BlockElement::Paragraph(Paragraph { content: vec![] })],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let doc_xml = {
+            let mut f = zip.by_name("word/document.xml").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+
+        // Should still produce a valid paragraph element
+        assert!(doc_xml.contains("w:p"));
+    }
+
+    #[test]
+    fn test_code_block_preserves_whitespace() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![BlockElement::CodeBlock(CodeBlock {
+                language: None,
+                content: "  indented\n  code\n".to_string(),
+            })],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let doc_xml = {
+            let mut f = zip.by_name("word/document.xml").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+
+        assert!(doc_xml.contains("  indented"));
+        assert!(doc_xml.contains("xml:space"));
+    }
+
+    #[test]
+    fn test_table_with_colspan() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![BlockElement::Table(Table {
+                caption: None,
+                header: vec![Row {
+                    cells: vec![Cell {
+                        colspan: 2,
+                        content: vec![BlockElement::Paragraph(Paragraph {
+                            content: vec![InlineElement::Text("Spans 2 cols".to_string())],
+                        })],
+                        ..Default::default()
+                    }],
+                }],
+                body: vec![],
+            })],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let doc_xml = {
+            let mut f = zip.by_name("word/document.xml").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+
+        assert!(doc_xml.contains("w:gridSpan"));
+        assert!(doc_xml.contains("Spans 2 cols"));
     }
 }

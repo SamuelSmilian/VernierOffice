@@ -23,9 +23,20 @@ impl Backend for PptxBackend {
 
         let slide_count = slides.len().max(1);
 
+        let has_notes: Vec<bool> = slides
+            .iter()
+            .map(|b| {
+                if let BlockElement::Slide(s) = b {
+                    s.notes.is_some()
+                } else {
+                    false
+                }
+            })
+            .collect();
+
         // [Content_Types].xml
         zip.start_file("[Content_Types].xml", options)?;
-        zip.write_all(pptx_content_types(slide_count).as_bytes())?;
+        zip.write_all(pptx_content_types(slide_count, &has_notes).as_bytes())?;
 
         // _rels/.rels
         zip.start_file("_rels/.rels", options)?;
@@ -79,9 +90,10 @@ impl Backend for PptxBackend {
             zip.write_all(&sld)?;
 
             // Slide relationship
+            let slide_has_notes = has_notes.get(i).copied().unwrap_or(false);
             let rels_path = format!("ppt/slides/_rels/slide{}.xml.rels", slide_num);
             zip.start_file(&rels_path, options)?;
-            zip.write_all(slide_rels(slide_num).as_bytes())?;
+            zip.write_all(slide_rels(slide_num, slide_has_notes).as_bytes())?;
 
             // Notes slide if the slide has notes
             if let BlockElement::Slide(slide) = block {
@@ -114,7 +126,7 @@ impl Backend for PptxBackend {
             zip.write_all(&sld)?;
 
             zip.start_file("ppt/slides/_rels/slide1.xml.rels", options)?;
-            zip.write_all(slide_rels(1).as_bytes())?;
+            zip.write_all(slide_rels(1, false).as_bytes())?;
         }
 
         // ppt/tableStyles.xml (required by some validators)
@@ -130,7 +142,7 @@ impl Backend for PptxBackend {
 // Static XML fragments
 // ---------------------------------------------------------------------------
 
-fn pptx_content_types(slide_count: usize) -> String {
+fn pptx_content_types(slide_count: usize, has_notes: &[bool]) -> String {
     let mut types = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -149,10 +161,12 @@ fn pptx_content_types(slide_count: usize) -> String {
             "\n  <Override PartName=\"/ppt/slides/slide{}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>",
             i
         ));
-        types.push_str(&format!(
-            "\n  <Override PartName=\"/ppt/notesSlides/notesSlide{}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>",
-            i
-        ));
+        if has_notes.get(i - 1).copied().unwrap_or(false) {
+            types.push_str(&format!(
+                "\n  <Override PartName=\"/ppt/notesSlides/notesSlide{}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>",
+                i
+            ));
+        }
     }
 
     types.push_str("\n</Types>");
@@ -182,24 +196,26 @@ fn presentation_rels(slide_count: usize) -> String {
         ));
     }
 
-    // Notes master reference
-    rels.push_str(
-        "\n  <Relationship Id=\"rIdNotes\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster\" Target=\"notesMasters/notesMaster1.xml\"/>",
-    );
-
     rels.push_str("\n</Relationships>");
     rels
 }
 
-fn slide_rels(slide_num: usize) -> String {
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+fn slide_rels(slide_num: usize, has_notes: bool) -> String {
+    if has_notes {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide{}.xml"/>
 </Relationships>"#,
-        slide_num
-    )
+            slide_num
+        )
+    } else {
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+</Relationships>"#.to_string()
+    }
 }
 
 fn notes_slide_rels(slide_num: usize) -> String {
@@ -207,7 +223,6 @@ fn notes_slide_rels(slide_num: usize) -> String {
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="../slides/slide{}.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="../notesMasters/notesMaster1.xml"/>
 </Relationships>"#,
         slide_num
     )
@@ -220,11 +235,18 @@ fn slide_master_rels() -> String {
 </Relationships>"#.to_string()
 }
 
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn core_xml(metadata: &Metadata) -> String {
-    let title = metadata.title.as_deref().unwrap_or("");
-    let author = metadata.author.as_deref().unwrap_or("");
-    let date = metadata.date.as_deref().unwrap_or("");
-    let language = metadata.language.as_deref().unwrap_or("");
+    let title = xml_escape(metadata.title.as_deref().unwrap_or(""));
+    let author = xml_escape(metadata.author.as_deref().unwrap_or(""));
+    let date = xml_escape(metadata.date.as_deref().unwrap_or(""));
+    let language = xml_escape(metadata.language.as_deref().unwrap_or(""));
 
     format!(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -286,13 +308,6 @@ fn write_presentation_xml(slide_count: usize, writer: impl io::Write) -> Result<
         ))?;
     }
     w.write_event(Event::End(BytesEnd::new("p:sldIdLst")))?;
-
-    // Notes master ID list
-    w.write_event(Event::Start(BytesStart::new("p:notesMasterIdLst")))?;
-    w.write_event(Event::Empty(
-        BytesStart::new("p:notesMasterId").with_attributes([("r:id", "rIdNotes")]),
-    ))?;
-    w.write_event(Event::End(BytesEnd::new("p:notesMasterIdLst")))?;
 
     w.write_event(Event::End(BytesEnd::new("p:presentation")))?;
     Ok(())
@@ -1130,5 +1145,240 @@ mod tests {
         assert!(slide_xml.contains("Item A"));
         assert!(slide_xml.contains("Item B"));
         assert!(slide_xml.contains("\u{2022}"));
+    }
+
+    #[test]
+    fn test_slide_without_notes_has_no_notes_artifacts() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![BlockElement::Slide(Slide {
+                title: vec![InlineElement::Text("No Notes".to_string())],
+                notes: None,
+                content: vec![BlockElement::Paragraph(Paragraph {
+                    content: vec![InlineElement::Text("Content".to_string())],
+                })],
+            })],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_pptx(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+
+        // Notes slide files should not exist
+        assert!(zip.by_name("ppt/notesSlides/notesSlide1.xml").is_err());
+
+        // Slide rels should NOT reference notesSlide
+        let rels_xml = {
+            let mut f = zip
+                .by_name("ppt/slides/_rels/slide1.xml.rels")
+                .unwrap();
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            s
+        };
+        assert!(!rels_xml.contains("notesSlide"));
+
+        // Content types should NOT have notesSlide override
+        let ct_xml = {
+            let mut f = zip.by_name("[Content_Types].xml").unwrap();
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            s
+        };
+        assert!(!ct_xml.contains("notesSlide"));
+    }
+
+    #[test]
+    fn test_multiple_slides() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![
+                BlockElement::Slide(Slide {
+                    title: vec![InlineElement::Text("Slide 1".to_string())],
+                    notes: None,
+                    content: vec![BlockElement::Paragraph(Paragraph {
+                        content: vec![InlineElement::Text("First".to_string())],
+                    })],
+                }),
+                BlockElement::Slide(Slide {
+                    title: vec![InlineElement::Text("Slide 2".to_string())],
+                    notes: None,
+                    content: vec![BlockElement::Paragraph(Paragraph {
+                        content: vec![InlineElement::Text("Second".to_string())],
+                    })],
+                }),
+            ],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_pptx(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+
+        assert!(zip.by_name("ppt/slides/slide1.xml").is_ok());
+        assert!(zip.by_name("ppt/slides/slide2.xml").is_ok());
+
+        let pres_xml = {
+            let mut f = zip.by_name("ppt/presentation.xml").unwrap();
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            s
+        };
+        assert!(pres_xml.contains("rIds1"));
+        assert!(pres_xml.contains("rIds2"));
+        // Should NOT reference notesMaster
+        assert!(!pres_xml.contains("notesMaster"));
+    }
+
+    #[test]
+    fn test_mixed_slides_with_and_without_notes() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![
+                BlockElement::Slide(Slide {
+                    title: vec![InlineElement::Text("With Notes".to_string())],
+                    notes: Some(vec![InlineElement::Text("Speaker note".to_string())]),
+                    content: vec![],
+                }),
+                BlockElement::Slide(Slide {
+                    title: vec![InlineElement::Text("Without Notes".to_string())],
+                    notes: None,
+                    content: vec![],
+                }),
+            ],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_pptx(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+
+        // First slide has notes
+        assert!(zip.by_name("ppt/notesSlides/notesSlide1.xml").is_ok());
+        // Second slide should NOT have notes
+        assert!(zip.by_name("ppt/notesSlides/notesSlide2.xml").is_err());
+    }
+
+    #[test]
+    fn test_metadata_xml_escaping() {
+        let doc = Document {
+            metadata: Metadata {
+                title: Some("Title <with> & \"chars\"".to_string()),
+                ..Default::default()
+            },
+            body: vec![],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_pptx(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+
+        let core_xml = {
+            let mut f = zip.by_name("docProps/core.xml").unwrap();
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            s
+        };
+
+        assert!(core_xml.contains("&lt;with&gt;"));
+        assert!(core_xml.contains("&amp; &quot;chars&quot;"));
+        assert!(!core_xml.contains("<with>"));
+    }
+
+    #[test]
+    fn test_slide_with_table() {
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![BlockElement::Slide(Slide {
+                title: vec![InlineElement::Text("Table Slide".to_string())],
+                notes: None,
+                content: vec![BlockElement::Table(Table {
+                    caption: None,
+                    header: vec![Row {
+                        cells: vec![
+                            Cell {
+                                content: vec![BlockElement::Paragraph(Paragraph {
+                                    content: vec![InlineElement::Text("Col1".to_string())],
+                                })],
+                                ..Default::default()
+                            },
+                            Cell {
+                                content: vec![BlockElement::Paragraph(Paragraph {
+                                    content: vec![InlineElement::Text("Col2".to_string())],
+                                })],
+                                ..Default::default()
+                            },
+                        ],
+                    }],
+                    body: vec![Row {
+                        cells: vec![
+                            Cell {
+                                content: vec![BlockElement::Paragraph(Paragraph {
+                                    content: vec![InlineElement::Text("A".to_string())],
+                                })],
+                                ..Default::default()
+                            },
+                            Cell {
+                                content: vec![BlockElement::Paragraph(Paragraph {
+                                    content: vec![InlineElement::Text("B".to_string())],
+                                })],
+                                ..Default::default()
+                            },
+                        ],
+                    }],
+                })],
+            })],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_pptx(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let slide_xml = {
+            let mut f = zip.by_name("ppt/slides/slide1.xml").unwrap();
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            s
+        };
+
+        assert!(slide_xml.contains("a:tbl"));
+        assert!(slide_xml.contains("Col1"));
+        assert!(slide_xml.contains("Col2"));
+        assert!(slide_xml.contains(">A<"));
+        assert!(slide_xml.contains(">B<"));
+    }
+
+    #[test]
+    fn test_title_slide_when_empty() {
+        let doc = Document {
+            metadata: Metadata {
+                title: Some("My Title".to_string()),
+                author: Some("Author Name".to_string()),
+                ..Default::default()
+            },
+            body: vec![],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_pptx(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+        let slide_xml = {
+            let mut f = zip.by_name("ppt/slides/slide1.xml").unwrap();
+            let mut s = String::new();
+            f.read_to_string(&mut s).unwrap();
+            s
+        };
+
+        assert!(slide_xml.contains("My Title"));
+        assert!(slide_xml.contains("Author Name"));
     }
 }

@@ -391,7 +391,6 @@ impl Parser {
                         span: span.clone(),
                     });
                 }
-                self.expect_close_brace()?;
                 Ok(BlockElement::List(List {
                     ordered: true,
                     items,
@@ -411,7 +410,6 @@ impl Parser {
                         span: span.clone(),
                     });
                 }
-                self.expect_close_brace()?;
                 Ok(BlockElement::BlockQuote(BlockQuote { content }))
             }
             "code" => {
@@ -1433,6 +1431,162 @@ mod tests {
                 assert_eq!(s.content.len(), 1);
             }
             _ => panic!("expected slide"),
+        }
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let tokens = lex("");
+        let doc = parse(tokens).unwrap();
+        assert_eq!(doc.body.len(), 0);
+        assert_eq!(doc.footnotes.len(), 0);
+        assert_eq!(doc.bibliography.len(), 0);
+    }
+
+    #[test]
+    fn test_only_whitespace() {
+        let tokens = lex("\n\n\n");
+        let doc = parse(tokens).unwrap();
+        assert_eq!(doc.body.len(), 0);
+    }
+
+    #[test]
+    fn test_emphasis_level_2() {
+        // \em{2}{bold} must be in paragraph context since \em is inline-only
+        let source = "Hello \\em{2}{bold} text.";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::Paragraph(p) => {
+                assert!(p.content.iter().any(|e| match e {
+                    InlineElement::Emphasis(em) => em.level == 2,
+                    _ => false,
+                }));
+            }
+            _ => panic!("expected paragraph"),
+        }
+    }
+
+    #[test]
+    fn test_nested_emphasis() {
+        // \em in paragraph context with nested \em (auto level 2)
+        let source = "Hello \\em{outer \\em{inner} text}!";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::Paragraph(p) => {
+                assert!(p.content.iter().any(|e| match e {
+                    InlineElement::Emphasis(em) => {
+                        em.content.iter().any(|c| matches!(c, InlineElement::Emphasis(_)))
+                    }
+                    _ => false,
+                }));
+            }
+            _ => panic!("expected paragraph"),
+        }
+    }
+
+    #[test]
+    fn test_link() {
+        let source = "Visit \\link{https://example.com}{the site}.";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::Paragraph(p) => {
+                assert!(p.content.iter().any(|e| match e {
+                    InlineElement::Link(l) => l.target == "https://example.com",
+                    _ => false,
+                }));
+            }
+            _ => panic!("expected paragraph"),
+        }
+    }
+
+    #[test]
+    fn test_ordered_list() {
+        let source = "\\begin{enumerate}\n\\item First\n\\item Second\n\\end{enumerate}";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::List(l) => {
+                assert!(l.ordered);
+                assert_eq!(l.items.len(), 2);
+            }
+            _ => panic!("expected list"),
+        }
+    }
+
+    #[test]
+    fn test_code_block() {
+        let source = "\\begin{code}\nlet x = 1;\n\\end{code}";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::CodeBlock(cb) => {
+                assert_eq!(cb.language, None);
+                assert_eq!(cb.content, "let x = 1;\n");
+            }
+            _ => panic!("expected code block"),
+        }
+    }
+
+    #[test]
+    fn test_blockquote() {
+        let source = "\\begin{quote}\nA quoted paragraph.\n\\end{quote}";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::BlockQuote(bq) => {
+                assert_eq!(bq.content.len(), 1);
+            }
+            _ => panic!("expected blockquote"),
+        }
+    }
+
+    #[test]
+    fn test_footnote_parsing() {
+        let source = concat!(
+            "Text with a note\\footnoteref{note1}.\n",
+            "\\footnote{note1}{This is the footnote.}"
+        );
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        assert_eq!(doc.footnotes.len(), 1);
+        assert_eq!(doc.footnotes[0].id, "note1");
+        // Body should have the paragraph with the footnote reference
+        assert!(doc.body.iter().any(|b| match b {
+            BlockElement::Paragraph(p) => p.content.iter().any(|e| match e {
+                InlineElement::FootnoteReference(id) => id == "note1",
+                _ => false,
+            }),
+            _ => false,
+        }));
+    }
+
+    #[test]
+    fn test_bibliography_parsing() {
+        let source = concat!(
+            "\\begin{bibliography}\n",
+            "\\entry{key1}{author=Smith, title=The Book, year=2020}\n",
+            "\\end{bibliography}\n"
+        );
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        assert_eq!(doc.bibliography.len(), 1);
+        assert_eq!(doc.bibliography[0].key, "key1");
+    }
+
+    #[test]
+    fn test_toc() {
+        // TOC is \toc, not \tableofcontents
+        let source = "\\toc{2}";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::TableOfContents(toc) => {
+                assert_eq!(toc.depth, Some(2));
+            }
+            _ => panic!("expected TOC"),
         }
     }
 }
