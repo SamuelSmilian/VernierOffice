@@ -7,7 +7,9 @@ Instead of manipulating Office documents through complex APIs, VernierOffice pro
 ## Status
 
 **v0.1.0-alpha** — Core compiler pipeline implemented with DOCX and PPTX backends.
+
 **v0.2.0-alpha** — Minor version during bug repairing.
+
 **v0.3.0-beta** — First verified usable version.
 
 ## Features
