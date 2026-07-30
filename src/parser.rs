@@ -18,6 +18,8 @@ pub enum ParseError {
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
+type SlideContents = (Vec<InlineElement>, Option<Vec<InlineElement>>, Vec<BlockElement>);
+
 struct Parser {
     tokens: Vec<(Token, Span)>,
     pos: usize,
@@ -220,8 +222,10 @@ impl Parser {
                 self.advance(); // close brace
 
                 // Check if there's another brace group (level form)
+                // A numeric first argument is only a level if a second {content} follows.
                 let is_level_form = first.len() == 1
-                    && matches!(&first[0], InlineElement::Text(t) if t.parse::<u8>().is_ok());
+                    && matches!(&first[0], InlineElement::Text(t) if t.parse::<u8>().is_ok())
+                    && matches!(self.peek().0, Token::OpenBrace);
 
                 if is_level_form {
                     let level: u8 = match &first[0] {
@@ -561,7 +565,7 @@ impl Parser {
                 }))
             }
             "bibliography" => {
-                let _entries = self.parse_bibliography_entries()?;
+                let _ = self.parse_bibliography_entries()?;
                 self.expect_command("end")?;
                 let end_name = self.parse_braced_content().map_err(|_| ParseError::MissingArgument {
                     command: "\\end".into(),
@@ -826,7 +830,7 @@ impl Parser {
     fn parse_slide_contents(
         &mut self,
         span: &Span,
-    ) -> ParseResult<(Vec<InlineElement>, Option<Vec<InlineElement>>, Vec<BlockElement>)> {
+    ) -> ParseResult<SlideContents> {
         self.skip_newlines();
 
         self.expect_command("slidetitle").map_err(|_| ParseError::MissingArgument {
@@ -984,7 +988,7 @@ impl Parser {
                             span: id_span.clone(),
                         }
                     })?;
-                    let _content =
+                    let _ =
                         self.parse_braced_inlines().map_err(|_| ParseError::MissingArgument {
                             command: "\\footnote".into(),
                             span: id_span,
@@ -993,8 +997,19 @@ impl Parser {
                     Ok(Some(BlockElement::Paragraph(Paragraph {
                         content: vec![InlineElement::Text(format!("__FOOTNOTE_DEF__{}", id))],
                     })))
-                } else {
+                } else if name == "heading" || name == "toc" {
                     Ok(Some(self.parse_block_command(&name, &span)?))
+                } else {
+                    // Inline command at block level — backtrack and parse as
+                    // paragraph so that \em, \code, \link, etc. are handled
+                    // through the normal inline-parsing path.
+                    self.pos -= 1;
+                    let inlines = self.parse_inlines_until(Token::Newline)?;
+                    if inlines.is_empty() {
+                        Ok(None)
+                    } else {
+                        Ok(Some(BlockElement::Paragraph(Paragraph { content: inlines })))
+                    }
                 }
             }
             Token::Text(_) | Token::OpenBrace | Token::Ampersand | Token::Backslash
@@ -1148,13 +1163,12 @@ pub fn parse(tokens: Vec<(Token, Span)>) -> ParseResult<Document> {
     });
 
     // Find bibliography at the end of body
-    if let Some(last) = body.last() {
-        if let BlockElement::Paragraph(p) = last {
-            if p.content.len() == 1 {
-                if let InlineElement::Text(t) = &p.content[0] {
-                    if t == "__BIBLIOGRAPHY__" {
-                        body.pop();
-                    }
+    #[allow(clippy::collapsible_match)]
+    if let Some(BlockElement::Paragraph(p)) = body.last() {
+        if p.content.len() == 1 {
+            if let InlineElement::Text(t) = &p.content[0] {
+                if t == "__BIBLIOGRAPHY__" {
+                    body.pop();
                 }
             }
         }
@@ -1185,15 +1199,12 @@ pub fn parse(tokens: Vec<(Token, Span)>) -> ParseResult<Document> {
         match p2.peek().0 {
             Token::Eof => break,
             Token::Command(ref name) if name == "footnote" => {
-                let start_span = p2.peek().1.clone();
                 p2.advance();
                 if let Ok(id) = p2.parse_braced_content() {
                     if let Ok(content) = p2.parse_braced_inlines() {
                         footnotes.push(Footnote { id, content });
                     }
                 }
-                // If parsing failed, try to recover
-                let _ = start_span;
             }
             Token::Command(ref name) if name == "begin" => {
                 p2.advance();
@@ -1587,6 +1598,66 @@ mod tests {
                 assert_eq!(toc.depth, Some(2));
             }
             _ => panic!("expected TOC"),
+        }
+    }
+
+    #[test]
+    fn test_emphasis_numeric_content() {
+        // \em{123} in inline context: 123 is content, not a level (Bug #2 regression)
+        let source = "text \\em{123} text";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::Paragraph(p) => {
+                let has_em = p.content.iter().any(|e| match e {
+                    InlineElement::Emphasis(em) => {
+                        em.level == 1
+                            && em.content.len() == 1
+                            && matches!(&em.content[0], InlineElement::Text(t) if t == "123")
+                    }
+                    _ => false,
+                });
+                assert!(has_em, "\\em{{123}} should be level-1 emphasis with content '123'");
+            }
+            _ => panic!("expected paragraph"),
+        }
+    }
+
+    #[test]
+    fn test_inline_command_at_block_level() {
+        // \em at the start of a paragraph should work (Bug #1 regression)
+        let source = "\\em{hello} world";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::Paragraph(p) => {
+                assert!(p.content.iter().any(|e| match e {
+                    InlineElement::Emphasis(em) => {
+                        em.level == 1
+                            && em.content.len() == 1
+                            && matches!(&em.content[0], InlineElement::Text(t) if t == "hello")
+                    }
+                    _ => false,
+                }));
+            }
+            _ => panic!("expected paragraph"),
+        }
+    }
+
+    #[test]
+    fn test_block_level_unknown_command_is_paragraph() {
+        // \code at the start of a paragraph should work as inline code within paragraph
+        let source = "\\code{let x = 1;}";
+        let tokens = lex(source);
+        let doc = parse(tokens).unwrap();
+        match &doc.body[0] {
+            BlockElement::Paragraph(p) => {
+                assert!(p
+                    .content
+                    .iter()
+                    .any(|e| matches!(e, InlineElement::InlineCode(c) if c == "let x = 1;")));
+            }
+            _ => panic!("expected paragraph with inline code"),
         }
     }
 }

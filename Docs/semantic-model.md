@@ -275,11 +275,11 @@ Elements collected at the document level and referenced from inline content.
 ```
 Footnote ::= {
     id:      Text,
-    content: [BlockElement],
+    content: [InlineElement],
 }
 ```
 
-An explanatory note. Referenced by `FootnoteReference { id }` in the body. The backend places the content appropriately (page bottom or end of document).
+An explanatory note. Referenced by `FootnoteReference { id }` in the body.
 
 ### BibliographyEntry
 

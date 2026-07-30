@@ -629,6 +629,7 @@ fn write_slide_title(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_text_box(
     w: &mut Writer<impl io::Write>,
     id: u32,

@@ -1,52 +1,25 @@
+See '../POLICY.md' for the global development policy.
+
+# VernierOffice
+
 ## Project
 
-This project implements an AI-first semantic document language and compiler.
+VernierOffice is a semantic document compiler written in Rust.
 
-The language describes document semantics, not presentation.
+## Documentation
 
-Backends generate platform-specific output.
+Read the project documentation before making changes.
 
-Current implementation language: Rust.
+Key references:
 
-## Principles
+- `README.md`
+- `Docs/semantic-model.md`
+- `Docs/dsl-syntax.md`
+- `Docs/feature-inventory.md`
+- `Docs/ir-architecture.md`
 
-- Semantics over appearance.
-- Simplicity over features.
-- Determinism over heuristics.
-- Readability over cleverness.
-- Backend independence whenever possible.
-- The development is based on two workflows: Planning and Design.
-- During planning, optimise the design. During implementation, protect the design.
+## Development
 
-## Rules
-
-Before changing behaviour, update the corresponding documentation.
-
-Do not introduce new syntax without strong semantic justification.
-
-Prefer extending existing constructs over creating new ones.
-
-Keep parsing deterministic.
-
-Avoid backend-specific language features.
-
-## Workflow
-
-Read documentation before implementation.
-
-Implement the smallest correct solution.
-
-Explain design trade-offs before major architectural changes.
-
-Keep code modular and explicit.
-
-## Decision Priority
-
-When multiple solutions satisfy the specification, choose the one that is:
-
-1. Simpler
-2. More deterministic
-3. Easier to maintain
-4. Easier to extend
-
-Never choose additional flexibility unless it is required by the specification.
+- Preserve the existing architecture.
+- Do not introduce unrelated refactoring.
+- Run the relevant tests before considering a task complete.

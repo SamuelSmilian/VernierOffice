@@ -42,7 +42,7 @@ impl Backend for DocxBackend {
         zip.write_all(&doc_xml)?;
 
         zip.start_file("word/_rels/document.xml.rels", options)?;
-        zip.write_all(document_rels_xml().as_bytes())?;
+        zip.write_all(document_rels_xml(!document.footnotes.is_empty()).as_bytes())?;
 
         if !document.footnotes.is_empty() {
             let mut fn_xml = Vec::new();
@@ -86,13 +86,20 @@ fn rels_xml() -> String {
 </Relationships>"#.to_string()
 }
 
-fn document_rels_xml() -> String {
-    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+fn document_rels_xml(has_footnotes: bool) -> String {
+    let mut rels = String::from(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
-  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>
-</Relationships>"#.to_string()
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>"#,
+    );
+    if has_footnotes {
+        rels.push_str(
+            "\n  <Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" Target=\"footnotes.xml\"/>",
+        );
+    }
+    rels.push_str("\n</Relationships>");
+    rels
 }
 
 fn xml_escape(s: &str) -> String {
@@ -1301,5 +1308,31 @@ mod tests {
 
         assert!(doc_xml.contains("w:gridSpan"));
         assert!(doc_xml.contains("Spans 2 cols"));
+    }
+
+    #[test]
+    fn test_no_footnotes_relationship_when_empty() {
+        // Regression: document.xml.rels should not reference footnotes.xml
+        // when the document has no footnotes (Bug #3).
+        let doc = Document {
+            metadata: Metadata::default(),
+            body: vec![BlockElement::Paragraph(Paragraph {
+                content: vec![InlineElement::Text("No footnotes".to_string())],
+            })],
+            footnotes: vec![],
+            bibliography: vec![],
+        };
+
+        let data = make_doc(&doc);
+        let cursor = Cursor::new(data);
+        let mut zip = ZipArchive::new(cursor).unwrap();
+
+        let rels_xml = {
+            let mut f = zip.by_name("word/_rels/document.xml.rels").unwrap();
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut f, &mut s).unwrap();
+            s
+        };
+        assert!(!rels_xml.contains("footnotes"));
     }
 }
